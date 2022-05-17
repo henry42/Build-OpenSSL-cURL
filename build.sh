@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# set -x
 # This script builds openssl+libcurl libraries for MacOS, iOS and tvOS
 #
 # Jason Cox, @jasonacox
@@ -10,9 +10,11 @@
 # EDIT this section to Select Default Versions #
 ################################################
 
-OPENSSL="1.1.1l"	# https://www.openssl.org/source/
-LIBCURL="7.80.0"	# https://curl.haxx.se/download.html
-NGHTTP2="1.46.0"	# https://nghttp2.org/
+OPENSSL="1.1.1o"	# https://www.openssl.org/source/
+LIBCURL="7.83.1"	# https://curl.haxx.se/download.html
+NGHTTP2="1.47.0"	# https://nghttp2.org/
+BROTLI="1.0.9"
+ZSTD="1.5.2"
 
 ################################################
 
@@ -45,6 +47,8 @@ fi
 engine=""
 buildnghttp2="-n"
 disablebitcode=""
+buildbrotli="-g"
+buildzstd="-j"
 colorflag=""
 catalyst=""
 sslv3=""
@@ -75,6 +79,8 @@ usage ()
 	echo "         -c <version>   Build curl version (default $LIBCURL)"
 	echo "         -n <version>   Build nghttp2 version (default $NGHTTP2)"
 	echo "         -d             Compile without HTTP2 support"
+	echo "         -g             Compile without Brotli support"
+	echo "         -j             Compile without Zstd support"
 	echo "         -e             Compile with OpenSSL engine support"
 	echo "         -b             Compile without bitcode"
 	echo "         -m             Compile Mac Catalyst library"
@@ -91,7 +97,7 @@ usage ()
 }
 
 # Process command line arguments
-while getopts "o:c:n:u:s:t:i:a:debm3xh\?" o; do
+while getopts "o:c:n:u:s:t:i:a:gjdebm3xh\?" o; do
     case "${o}" in
 		o)
 			OPENSSL="${OPTARG}"
@@ -104,6 +110,12 @@ while getopts "o:c:n:u:s:t:i:a:debm3xh\?" o; do
 			;;
 		d)
 			buildnghttp2=""
+			;;
+		g)
+			buildbrotli=""
+			;;
+		j)
+			buildzstd=""
 			;;
 		e)
 			engine="-e"
@@ -182,11 +194,33 @@ else
 	cd ..
 fi
 
+## BROTLI Build
+if [ "$buildbrotli" == "" ]; then
+	BROTLI="NONE"
+else
+	echo
+	echo -e "${bold}Building brotli${normal}"
+	cd brotli
+	./brotli-build.sh -v "$BROTLI" $colorflag $catalyst $OSARGS
+	cd ..
+fi
+
+## ZSTD Build
+if [ "$buildzstd" == "" ]; then
+	ZSTD="NONE"
+else
+	echo
+	echo -e "${bold}Building zstd${normal}"
+	cd zstd
+	./zstd-build.sh -v "$ZSTD" $colorflag $catalyst $OSARGS
+	cd ..
+fi
+
 ## Curl Build
 echo
 echo -e "${bold}Building Curl${normal}"
 cd curl
-./libcurl-build.sh -v "$LIBCURL" $disablebitcode $colorflag $buildnghttp2 $catalyst $OSARGS
+./libcurl-build.sh -v "$LIBCURL" $disablebitcode $colorflag $buildnghttp2 $buildbrotli $buildzstd $catalyst $OSARGS
 cd ..
 
 ## Archive Libraries and Clean Up
@@ -301,37 +335,62 @@ fi
 
 cp openssl/*.a $ARCHIVE/framework
 
-# libraries for nghttp2
-if [ "$buildnghttp2" != "" ]; then
-    # nghttp2 libraries
-	cp nghttp2/lib/libnghttp2_iOS.a $ARCHIVE/lib/iOS/libnghttp2.a
-	cp nghttp2/lib/libnghttp2_iOS-simulator.a $ARCHIVE/lib/iOS-simulator/libnghttp2.a
-	cp nghttp2/lib/libnghttp2_iOS-fat.a $ARCHIVE/lib/iOS-fat/libnghttp2.a
-	cp nghttp2/lib/libnghttp2_tvOS.a $ARCHIVE/lib/tvOS/libnghttp2.a
-	cp nghttp2/lib/libnghttp2_tvOS-simulator.a $ARCHIVE/lib/tvOS-simulator/libnghttp2.a
-	cp nghttp2/lib/libnghttp2_Mac.a $ARCHIVE/lib/MacOS/libnghttp2.a
+build_xc()
+{
+	libname="$1"
+
+	cp ${libname}/lib/lib${libname}_iOS.a $ARCHIVE/lib/iOS/lib${libname}.a
+	cp ${libname}/lib/lib${libname}_iOS-simulator.a $ARCHIVE/lib/iOS-simulator/lib${libname}.a
+	cp ${libname}/lib/lib${libname}_iOS-fat.a $ARCHIVE/lib/iOS-fat/lib${libname}.a
+	cp ${libname}/lib/lib${libname}_tvOS.a $ARCHIVE/lib/tvOS/lib${libname}.a
+	cp ${libname}/lib/lib${libname}_tvOS-simulator.a $ARCHIVE/lib/tvOS-simulator/lib${libname}.a
+	cp ${libname}/lib/lib${libname}_Mac.a $ARCHIVE/lib/MacOS/lib${libname}.a
 	if [ "$catalyst" == "-m" ]; then
-		cp nghttp2/lib/libnghttp2_Catalyst.a $ARCHIVE/lib/Catalyst/libnghttp2.a
+		cp ${libname}/lib/lib${libname}_Catalyst.a $ARCHIVE/lib/Catalyst/lib${libname}.a
 		xcodebuild -create-xcframework \
-			-library $ARCHIVE/lib/iOS/libnghttp2.a \
-			-library $ARCHIVE/lib/iOS-simulator/libnghttp2.a \
-			-library $ARCHIVE/lib/tvOS/libnghttp2.a \
-			-library $ARCHIVE/lib/tvOS-simulator/libnghttp2.a \
-			-library $ARCHIVE/lib/Catalyst/libnghttp2.a \
-			-output $ARCHIVE/xcframework/libnghttp2.xcframework
+			-library $ARCHIVE/lib/iOS/lib${libname}.a \
+			-library $ARCHIVE/lib/iOS-simulator/lib${libname}.a \
+			-library $ARCHIVE/lib/tvOS/lib${libname}.a \
+			-library $ARCHIVE/lib/tvOS-simulator/lib${libname}.a \
+			-library $ARCHIVE/lib/Catalyst/lib${libname}.a \
+			-output $ARCHIVE/xcframework/lib${libname}.xcframework
 	else
 		xcodebuild -create-xcframework \
-			-library $ARCHIVE/lib/iOS/libnghttp2.a \
-			-library $ARCHIVE/lib/iOS-simulator/libnghttp2.a \
-			-library $ARCHIVE/lib/tvOS/libnghttp2.a \
-			-library $ARCHIVE/lib/tvOS-simulator/libnghttp2.a \
-			-output $ARCHIVE/xcframework/libnghttp2.xcframework
+			-library $ARCHIVE/lib/iOS/lib${libname}.a \
+			-library $ARCHIVE/lib/iOS-simulator/lib${libname}.a \
+			-library $ARCHIVE/lib/tvOS/lib${libname}.a \
+			-library $ARCHIVE/lib/tvOS-simulator/lib${libname}.a \
+			-output $ARCHIVE/xcframework/lib${libname}.xcframework
 	fi
+
+}
+
+# libraries for nghttp2
+if [ "$buildnghttp2" != "" ]; then
+	# nghttp2 libraries
+	build_xc nghttp2
+	cp -R nghttp2/iOS/arm64/include/* "$ARCHIVE/include"
 fi
+
+# libraries for brotli
+if [ "$buildbrotli" != "" ]; then
+	# brotli libraries
+	build_xc brotli
+	cp -R brotli/iOS/arm64/include/* "$ARCHIVE/include"
+fi
+
+if [ "$buildzstd" != "" ]; then
+	# zstd libraries
+	build_xc zstd
+	cp -R zstd/iOS/arm64/include/* "$ARCHIVE/include"
+fi
+
+
 
 # archive header files
 cp openssl/iOS/include/openssl/* "$ARCHIVE/include/openssl"
 cp curl/include/curl/* "$ARCHIVE/include/curl"
+
 
 # grab root certs
 curl -sL https://curl.se/ca/cacert.pem > $ARCHIVE/cacert.pem

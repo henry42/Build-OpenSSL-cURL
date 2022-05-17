@@ -34,8 +34,10 @@ alertdim="\033[0m${red}\033[2m"
 trap 'echo -e "${alert}** ERROR with Build - Check /tmp/curl*.log${alertdim}"; tail -3 /tmp/curl*.log' INT TERM EXIT
 
 # Set defaults
-CURL_VERSION="curl-7.74.0"
+CURL_VERSION="curl-7.83.1"
 nohttp2="0"
+nobrotli="0"
+nozstd="0"
 catalyst="0"
 
 # Set minimum OS versions for target
@@ -70,6 +72,8 @@ usage ()
 	echo "         -a   macOS arm64 min target version (default $MACOS_ARM64_VERSION)"
 	echo "         -b   compile without bitcode"
 	echo "         -n   compile with nghttp2"
+	echo "         -g   compile with brotli"
+	echo "         -j   compile with zstd"
 	echo "         -u   Mac Catalyst iOS min target version (default $CATALYST_IOS)"
 	echo "         -m   compile Mac Catalyst library [beta]"
 	echo "         -x   disable color output"
@@ -79,7 +83,7 @@ usage ()
 	exit 127
 }
 
-while getopts "v:s:t:i:a:u:nmbxh\?" o; do
+while getopts "v:s:t:i:a:u:ngjmbxh\?" o; do
     case "${o}" in
         v)
 			CURL_VERSION="curl-${OPTARG}"
@@ -98,6 +102,12 @@ while getopts "v:s:t:i:a:u:nmbxh\?" o; do
 			;;
 		n)
 			nohttp2="1"
+			;;
+		g)
+			nobrotli="1"
+			;;
+		j)
+			nozstd="1"
 			;;
 		m)
 			catalyst="1"
@@ -150,6 +160,24 @@ else
 	NGHTTP2LIB=""
 fi
 
+if [ $nobrotli == "1" ]; then
+	echo "Building with Brotli Support"
+	BROTLI="${PWD}/../brotli"
+else
+	echo "Building without Brotli Support"
+	BROTLICFG=""
+	BROTLILIB=""
+fi
+
+if [ $nozstd == "1" ]; then
+	echo "Building with Zstd Support"
+	ZSTD="${PWD}/../zstd"
+else
+	echo "Building without Zstd Support"
+	ZSTDCFG=""
+	ZSTDLIB=""
+fi
+
 # Check to see if pkg-config is already installed
 PATH=$PATH:/tmp/pkg_config/bin
 if ! (type "pkg-config" > /dev/null 2>&1 ) ; then
@@ -185,16 +213,30 @@ buildMac()
 	ARCH=$1
 	HOST="x86_64-apple-darwin"
 
+	TARGET="darwin-i386-cc"
+	BUILD_MACHINE=`uname -m`
+	export CC="clang"
+	export CFLAGS="-arch ${ARCH} -pipe -Os -gdwarf-2 -fembed-bitcode"
+	export LDFLAGS="-arch ${ARCH}"
+	export CPPFLAGS=""
+
 	if [ $nohttp2 == "1" ]; then
 		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/Mac/${ARCH}"
 		NGHTTP2LIB="-L${NGHTTP2}/Mac/${ARCH}/lib"
 	fi
 
-	TARGET="darwin-i386-cc"
-	BUILD_MACHINE=`uname -m`
-	export CC="clang"
-	export CFLAGS="-arch ${ARCH} -pipe -Os -gdwarf-2 -fembed-bitcode"
-	export LDFLAGS="-arch ${ARCH} -L${OPENSSL}/Mac/lib ${NGHTTP2LIB}"
+	if [ $nobrotli == "1" ]; then
+		BROTLICFG="--with-brotli=${BROTLI}/Mac/${ARCH}"
+		BROTLILIB="-L${BROTLI}/Mac/${ARCH}/lib"
+	fi
+
+	if [ $nozstd == "1" ]; then
+		ZSTDCFG="--with-zstd=${ZSTD}/Mac/${ARCH}"
+		ZSTDLIB="-L${ZSTD}/Mac/${ARCH}/lib"
+		export CPPFLAGS="$CPPFLAGS -I${ZSTD}/Mac/${ARCH}/include/zstd"
+	fi
+
+	export LDFLAGS="$LDFLAGS -L${OPENSSL}/Mac/lib ${NGHTTP2LIB} ${BROTLILIB} ${ZSTDLIB}"
 
 	if [[ $ARCH == "x86_64" ]]; then
 		TARGET="darwin64-x86_64-cc"
@@ -204,8 +246,8 @@ buildMac()
 			export CC="clang"
 			export CXX="clang"
 			export CFLAGS=" -mmacosx-version-min=${MACOS_X86_64_VERSION} -arch ${ARCH} -pipe -Os -gdwarf-2 -fembed-bitcode "
-			export LDFLAGS=" -arch ${ARCH} -isysroot ${DEVELOPER}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -L${OPENSSL}/Mac/lib ${NGHTTP2LIB} "
-			export CPPFLAGS=" -I.. -isysroot ${DEVELOPER}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk "
+			export LDFLAGS=" -arch ${ARCH} -isysroot ${DEVELOPER}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -L${OPENSSL}/Mac/lib ${NGHTTP2LIB} ${BROTLILIB} ${ZSTDLIB}"
+			export CPPFLAGS="$CPPFLAGS -I.. -isysroot ${DEVELOPER}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk "
 		else
 			# Apple x86_64 Build Machine Detected - native build
 			export CFLAGS=" -mmacosx-version-min=${MACOS_X86_64_VERSION} -arch ${ARCH} -pipe -Os -gdwarf-2 -fembed-bitcode "
@@ -224,8 +266,8 @@ buildMac()
 			export CC="clang"
 			export CXX="clang"
 			export CFLAGS=" -mmacosx-version-min=${MACOS_ARM64_VERSION} -arch ${ARCH} -pipe -Os -gdwarf-2 -fembed-bitcode "
-			export LDFLAGS=" -arch ${ARCH} -isysroot ${DEVELOPER}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -L${OPENSSL}/Mac/lib ${NGHTTP2LIB} "
-			export CPPFLAGS=" -I.. -isysroot ${DEVELOPER}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk "
+			export LDFLAGS=" -arch ${ARCH} -isysroot ${DEVELOPER}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -L${OPENSSL}/Mac/lib ${NGHTTP2LIB} ${BROTLILIB} ${ZSTDLIB}"
+			export CPPFLAGS="$CPPFLAGS -I.. -isysroot ${DEVELOPER}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk "
 		fi
 	fi
 
@@ -233,7 +275,8 @@ buildMac()
 
 	pushd . > /dev/null
 	cd "${CURL_VERSION}"
-	./configure -prefix="/tmp/${CURL_VERSION}-${ARCH}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/Mac ${NGHTTP2CFG} --host=${HOST} &> "/tmp/${CURL_VERSION}-${ARCH}.log"
+	./configure -prefix="/tmp/${CURL_VERSION}-${ARCH}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/Mac ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG} --host=${HOST} &> "/tmp/${CURL_VERSION}-${ARCH}.log"
+	
 
 	make -j${CORES} >> "/tmp/${CURL_VERSION}-${ARCH}.log" 2>&1
 	make install >> "/tmp/${CURL_VERSION}-${ARCH}.log" 2>&1
@@ -268,24 +311,38 @@ buildCatalyst()
 		CC_BITCODE_FLAG="-fembed-bitcode"
 	fi
 
-	if [ $nohttp2 == "1" ]; then
-		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/Catalyst/${ARCH}"
-		NGHTTP2LIB="-L${NGHTTP2}/Catalyst/${ARCH}/lib"
-	fi
-
 	export $PLATFORM
 	export CROSS_TOP="${DEVELOPER}/Platforms/${PLATFORM}.platform/Developer"
 	export CROSS_SDK="${PLATFORM}.sdk"
 	export CC="${DEVELOPER}/usr/bin/gcc"
 	export CFLAGS="-arch ${ARCH} -pipe -Os -gdwarf-2 -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -target $TARGET ${CC_BITCODE_FLAG}"
-	export LDFLAGS="-arch ${ARCH} -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -L${OPENSSL}/catalyst/lib ${NGHTTP2LIB}"
+	export LDFLAGS="-arch ${ARCH} -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK}"
+	export CPPFLAGS=""
+
+	if [ $nohttp2 == "1" ]; then
+		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/Catalyst/${ARCH}"
+		NGHTTP2LIB="-L${NGHTTP2}/Catalyst/${ARCH}/lib"
+	fi
+
+	if [ $nobrotli == "1" ]; then
+		BROTLICFG="--with-brotli=${BROTLI}/Catalyst/${ARCH}"
+		BROTLILIB="-L${BROTLI}/Catalyst/${ARCH}/lib"
+	fi
+
+	if [ $nozstd == "1" ]; then
+		ZSTDCFG="--with-zstd=${ZSTD}/Catalyst/${ARCH}"
+		ZSTDLIB="-L${ZSTD}/Catalyst/${ARCH}/lib"
+		export CPPFLAGS="$CPPFLAGS -I${ZSTD}/Catalyst/${ARCH}/include/zstd"
+	fi
+
+	export LDFLAGS="$LDFLAGS -L${OPENSSL}/catalyst/lib ${NGHTTP2LIB} ${BROTLILIB} ${ZSTDLIB}"
 
 	echo -e "${subbold}Building ${CURL_VERSION} for ${archbold}${ARCH}${dim} ${BITCODE} (Mac Catalyst iOS ${CATALYST_IOS})"
 
 	if [[ "${ARCH}" == "arm64" ]]; then
-		./configure -prefix="/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/catalyst ${NGHTTP2CFG} --host="arm-apple-darwin" &> "/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}.log"
+		./configure -prefix="/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/catalyst ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG} --host="arm-apple-darwin" &> "/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}.log"
 	else
-		./configure -prefix="/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/catalyst ${NGHTTP2CFG} --host="${ARCH}-apple-darwin" &> "/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}.log"
+		./configure -prefix="/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/catalyst ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG} --host="${ARCH}-apple-darwin" &> "/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}.log"
 	fi
 	
 	make -j${CORES} >> "/tmp/${CURL_VERSION}-catalyst-${ARCH}-${BITCODE}.log" 2>&1
@@ -306,6 +363,14 @@ buildIOS()
 	PLATFORM="iPhoneOS"
 	PLATFORMDIR="iOS"
 
+
+	export $PLATFORM
+	export CROSS_TOP="${DEVELOPER}/Platforms/${PLATFORM}.platform/Developer"
+	export CROSS_SDK="${PLATFORM}${IOS_SDK_VERSION}.sdk"
+	export CC="${DEVELOPER}/usr/bin/gcc"
+	export CFLAGS="-arch ${ARCH} -pipe -Os -gdwarf-2 -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -miphoneos-version-min=${IOS_MIN_SDK_VERSION} ${CC_BITCODE_FLAG}"
+	export CPPFLAGS=""
+
 	if [[ "${BITCODE}" == "nobitcode" ]]; then
 		CC_BITCODE_FLAG=""
 	else
@@ -317,20 +382,25 @@ buildIOS()
 		NGHTTP2LIB="-L${NGHTTP2}/${PLATFORMDIR}/${ARCH}/lib"
 	fi
 
-	export $PLATFORM
-	export CROSS_TOP="${DEVELOPER}/Platforms/${PLATFORM}.platform/Developer"
-	export CROSS_SDK="${PLATFORM}${IOS_SDK_VERSION}.sdk"
-	export CC="${DEVELOPER}/usr/bin/gcc"
-	export CFLAGS="-arch ${ARCH} -pipe -Os -gdwarf-2 -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -miphoneos-version-min=${IOS_MIN_SDK_VERSION} ${CC_BITCODE_FLAG}"
+	if [ $nobrotli == "1" ]; then
+		BROTLICFG="--with-brotli=${BROTLI}/${PLATFORMDIR}/${ARCH}"
+		BROTLILIB="-L${BROTLI}/${PLATFORMDIR}/${ARCH}/lib"
+	fi
+
+	if [ $nozstd == "1" ]; then
+		ZSTDCFG="--with-zstd=${ZSTD}/${PLATFORMDIR}/${ARCH}"
+		ZSTDLIB="-L${ZSTD}/${PLATFORMDIR}/${ARCH}/lib"
+		export CPPFLAGS="$CPPFLAGS -I${ZSTD}/${PLATFORMDIR}/${ARCH}/include/zstd"
+	fi
 
 	echo -e "${subbold}Building ${CURL_VERSION} for ${PLATFORM} ${IOS_SDK_VERSION} ${archbold}${ARCH}${dim} ${BITCODE} (iOS ${IOS_MIN_SDK_VERSION})"
 
-	export LDFLAGS="-arch ${ARCH} -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -L${OPENSSL}/${PLATFORMDIR}/lib ${NGHTTP2LIB}"
+	export LDFLAGS="-arch ${ARCH} -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -L${OPENSSL}/${PLATFORMDIR}/lib ${NGHTTP2LIB} ${BROTLILIB} ${ZSTDLIB}"
 
 	if [[ "${ARCH}" == *"arm64"* || "${ARCH}" == "arm64e" ]]; then
-		./configure -prefix="/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/${PLATFORMDIR} ${NGHTTP2CFG} --host="arm-apple-darwin" &> "/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}.log"
+		./configure -prefix="/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/${PLATFORMDIR} ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG} --host="arm-apple-darwin" &> "/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}.log"
 	else
-		./configure -prefix="/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/${PLATFORMDIR} ${NGHTTP2CFG} --host="${ARCH}-apple-darwin" &> "/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}.log"
+		./configure -prefix="/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/${PLATFORMDIR} ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG} --host="${ARCH}-apple-darwin" &> "/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}.log"
 	fi
 
 	make -j${CORES} >> "/tmp/${CURL_VERSION}-iOS-${ARCH}-${BITCODE}.log" 2>&1
@@ -350,16 +420,6 @@ buildIOSsim()
 	PLATFORM="iPhoneSimulator"
 	PLATFORMDIR="iOS-simulator"
 
-	if [[ "${BITCODE}" == "nobitcode" ]]; then
-		CC_BITCODE_FLAG=""
-	else
-		CC_BITCODE_FLAG="-fembed-bitcode"
-	fi
-
-	if [ $nohttp2 == "1" ]; then
-		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/${PLATFORMDIR}/${ARCH}"
-		NGHTTP2LIB="-L${NGHTTP2}/${PLATFORMDIR}/${ARCH}/lib"
-	fi
 
 	TARGET="darwin-i386-cc"
 	RUNTARGET=""
@@ -376,15 +436,39 @@ buildIOSsim()
 	export CC="${DEVELOPER}/usr/bin/gcc"
 	export CXX="${DEVELOPER}/usr/bin/gcc"
 	export CFLAGS="-arch ${ARCH} -pipe -Os -gdwarf-2 -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -miphoneos-version-min=${MIPHONEOS} ${CC_BITCODE_FLAG} ${RUNTARGET} "
-	export LDFLAGS="-arch ${ARCH} -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -L${OPENSSL}/${PLATFORMDIR}/lib ${NGHTTP2LIB} "
+	export LDFLAGS="-arch ${ARCH} -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} "
 	export CPPFLAGS=" -I.. -isysroot ${DEVELOPER}/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk "
+
+	if [[ "${BITCODE}" == "nobitcode" ]]; then
+		CC_BITCODE_FLAG=""
+	else
+		CC_BITCODE_FLAG="-fembed-bitcode"
+	fi
+
+	if [ $nohttp2 == "1" ]; then
+		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/${PLATFORMDIR}/${ARCH}"
+		NGHTTP2LIB="-L${NGHTTP2}/${PLATFORMDIR}/${ARCH}/lib"
+	fi
+
+	if [ $nobrotli == "1" ]; then
+		BROTLICFG="--with-brotli=${BROTLI}/${PLATFORMDIR}/${ARCH}"
+		BROTLILIB="-L${BROTLI}/${PLATFORMDIR}/${ARCH}/lib"
+	fi
+
+	if [ $nozstd == "1" ]; then
+		ZSTDCFG="--with-zstd=${ZSTD}/${PLATFORMDIR}/${ARCH}"
+		ZSTDLIB="-L${ZSTD}/${PLATFORMDIR}/${ARCH}/lib"
+		export CPPFLAGS="$CPPFLAGS -I${ZSTD}/${PLATFORMDIR}/${ARCH}/include/zstd"
+	fi
+
+	export LDFLAGS="$LDFLAGS -L${OPENSSL}/${PLATFORMDIR}/lib ${NGHTTP2LIB} ${BROTLILIB} ${ZSTDLIB}"
 
 	echo -e "${subbold}Building ${CURL_VERSION} for ${PLATFORM} ${IOS_SDK_VERSION} ${archbold}${ARCH}${dim} ${BITCODE} (iOS ${IOS_MIN_SDK_VERSION})"
 
 	if [[ "${ARCH}" == *"arm64"* || "${ARCH}" == "arm64e" ]]; then
-		./configure -prefix="/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/${PLATFORMDIR} ${NGHTTP2CFG} --host="arm-apple-darwin" &> "/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}.log"
+		./configure -prefix="/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/${PLATFORMDIR} ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG} --host="arm-apple-darwin" &> "/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}.log"
 	else
-		./configure -prefix="/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/${PLATFORMDIR} ${NGHTTP2CFG} --host="${ARCH}-apple-darwin" &> "/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}.log"
+		./configure -prefix="/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}" --disable-shared --enable-static -with-random=/dev/urandom --with-ssl=${OPENSSL}/${PLATFORMDIR} ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG} --host="${ARCH}-apple-darwin" &> "/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}.log"
 	fi
 
 	make -j${CORES} >> "/tmp/${CURL_VERSION}-iOS-simulator-${ARCH}-${BITCODE}.log" 2>&1
@@ -406,22 +490,36 @@ buildTVOS()
 		PLATFORM="AppleTVOS"
 	fi
 
-	if [ $nohttp2 == "1" ]; then
-		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/tvOS/${ARCH}"
-		NGHTTP2LIB="-L${NGHTTP2}/tvOS/${ARCH}/lib"
-	fi
-
 	export $PLATFORM
 	export CROSS_TOP="${DEVELOPER}/Platforms/${PLATFORM}.platform/Developer"
 	export CROSS_SDK="${PLATFORM}${TVOS_SDK_VERSION}.sdk"
 	export CC="${DEVELOPER}/usr/bin/gcc"
 	export CFLAGS="-arch ${ARCH} -pipe -Os -gdwarf-2 -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -mtvos-version-min=${TVOS_MIN_SDK_VERSION} -fembed-bitcode"
-	export LDFLAGS="-arch ${ARCH} -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -L${OPENSSL}/tvOS/lib ${NGHTTP2LIB}"
+	export LDFLAGS="-arch ${ARCH} -isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK}"
+	export CPPFLAGS=""
 #	export PKG_CONFIG_PATH
+
+	if [ $nohttp2 == "1" ]; then
+		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/tvOS/${ARCH}"
+		NGHTTP2LIB="-L${NGHTTP2}/tvOS/${ARCH}/lib"
+	fi
+
+	if [ $nobrotli == "1" ]; then
+		BROTLICFG="--with-brotli=${BROTLI}/tvOS/${ARCH}"
+		BROTLILIB="-L${BROTLI}/tvOS/${ARCH}/lib"
+	fi
+
+	if [ $nozstd == "1" ]; then
+		ZSTDCFG="--with-zstd=${ZSTD}/tvOS/${ARCH}"
+		ZSTDLIB="-L${ZSTD}/tvOS/${ARCH}/lib"
+		export CPPFLAGS="$CPPFLAGS -I${ZSTD}/tvOS/${ARCH}/include/zstd"
+	fi
+
+	export LDFLAGS="$LDFLAGS -L${OPENSSL}/tvOS/lib ${NGHTTP2LIB} ${BROTLILIB} ${ZSTDLIB}"
 
 	echo -e "${subbold}Building ${CURL_VERSION} for ${PLATFORM} ${TVOS_SDK_VERSION} ${archbold}${ARCH}${dim} (tvOS ${TVOS_MIN_SDK_VERSION})"
 
-	./configure -prefix="/tmp/${CURL_VERSION}-tvOS-${ARCH}" --host="arm-apple-darwin" --disable-shared -with-random=/dev/urandom --disable-ntlm-wb --with-ssl="${OPENSSL}/tvOS" ${NGHTTP2CFG} &> "/tmp/${CURL_VERSION}-tvOS-${ARCH}.log"
+	./configure -prefix="/tmp/${CURL_VERSION}-tvOS-${ARCH}" --host="arm-apple-darwin" --disable-shared -with-random=/dev/urandom --disable-ntlm-wb --with-ssl="${OPENSSL}/tvOS" ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG} &> "/tmp/${CURL_VERSION}-tvOS-${ARCH}.log"
 
 	# Patch to not use fork() since it's not available on tvOS
         LANG=C sed -i -- 's/define HAVE_FORK 1/define HAVE_FORK 0/' "./lib/curl_config.h"
@@ -444,11 +542,6 @@ buildTVOSsim()
 	PLATFORM="AppleTVSimulator"
 	PLATFORMDIR="tvOS-simulator"
 
-	if [ $nohttp2 == "1" ]; then
-		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/${PLATFORMDIR}/${ARCH}"
-		NGHTTP2LIB="-L${NGHTTP2}/${PLATFORMDIR}/${ARCH}/lib"
-	fi
-
 	TARGET="darwin64-${ARCH}-cc"
 	RUNTARGET="-target ${ARCH}-apple-tvos${TVOS_MIN_SDK_VERSION}-simulator"
 
@@ -457,16 +550,33 @@ buildTVOSsim()
 	export CC="${DEVELOPER}/usr/bin/gcc"
 	export CXX="${DEVELOPER}/usr/bin/gcc"
 	export CFLAGS="-arch ${ARCH} -pipe -Os -gdwarf-2 -isysroot ${SYSROOT} -mtvos-version-min=${TVOS_MIN_SDK_VERSION} -fembed-bitcode ${RUNTARGET}"
-	export LDFLAGS="-arch ${ARCH} -isysroot ${SYSROOT} -L${OPENSSL}/${PLATFORMDIR}/lib ${NGHTTP2LIB}"
+	export LDFLAGS="-arch ${ARCH} -isysroot ${SYSROOT}"
 	export CPPFLAGS=" -I.. -isysroot ${SYSROOT} "
 
+	if [ $nohttp2 == "1" ]; then
+		NGHTTP2CFG="--with-nghttp2=${NGHTTP2}/${PLATFORMDIR}/${ARCH}"
+		NGHTTP2LIB="-L${NGHTTP2}/${PLATFORMDIR}/${ARCH}/lib"
+	fi
+
+	if [ $nobrotli == "1" ]; then
+		BROTLICFG="--with-brotli=${BROTLI}/${PLATFORMDIR}/${ARCH}"
+		BROTLILIB="-L${BROTLI}/${PLATFORMDIR}/${ARCH}/lib"
+	fi
+
+	if [ $nozstd == "1" ]; then
+		ZSTDCFG="--with-zstd=${ZSTD}/${PLATFORMDIR}/${ARCH}"
+		ZSTDLIB="-L${ZSTD}/${PLATFORMDIR}/${ARCH}/lib"
+		export CPPFLAGS="$CPPFLAGS -I${ZSTD}/${PLATFORMDIR}/${ARCH}/include/zstd"
+	fi
+
+	export LDFLAGS="$LDFLAGS -L${OPENSSL}/${PLATFORMDIR}/lib ${NGHTTP2LIB} ${BROTLILIB} ${ZSTDLIB}"
 
 	echo -e "${subbold}Building ${CURL_VERSION} for ${PLATFORM} ${TVOS_SDK_VERSION} ${archbold}${ARCH}${dim} (tvOS SIM ${TVOS_MIN_SDK_VERSION})"
 
 	if [[ "${ARCH}" == "arm64" ]]; then
-		./configure --prefix="/tmp/${CURL_VERSION}-tvOS-simulator-${ARCH}" --host="arm-apple-darwin" --disable-shared -with-random=/dev/urandom --disable-ntlm-wb --with-ssl="${OPENSSL}/${PLATFORMDIR}" ${NGHTTP2CFG}  &> "/tmp/${CURL_VERSION}-tvOS-simulator-${ARCH}.log"
+		./configure --prefix="/tmp/${CURL_VERSION}-tvOS-simulator-${ARCH}" --host="arm-apple-darwin" --disable-shared -with-random=/dev/urandom --disable-ntlm-wb --with-ssl="${OPENSSL}/${PLATFORMDIR}" ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG}  &> "/tmp/${CURL_VERSION}-tvOS-simulator-${ARCH}.log"
 	else
-		./configure --prefix="/tmp/${CURL_VERSION}-tvOS-simulator-${ARCH}" --host="${ARCH}-apple-darwin" --disable-shared  -with-random=/dev/urandom --disable-ntlm-wb --with-ssl="${OPENSSL}/${PLATFORMDIR}" ${NGHTTP2CFG}  &> "/tmp/${CURL_VERSION}-tvOS-simulator-${ARCH}.log"
+		./configure --prefix="/tmp/${CURL_VERSION}-tvOS-simulator-${ARCH}" --host="${ARCH}-apple-darwin" --disable-shared  -with-random=/dev/urandom --disable-ntlm-wb --with-ssl="${OPENSSL}/${PLATFORMDIR}" ${NGHTTP2CFG} ${BROTLICFG} ${ZSTDCFG}  &> "/tmp/${CURL_VERSION}-tvOS-simulator-${ARCH}.log"
 	fi
 
 	# Patch to not use fork() since it's not available on tvOS
@@ -500,6 +610,12 @@ fi
 
 echo "Unpacking curl"
 tar xfz "${CURL_VERSION}.tar.gz"
+
+
+if [ $nobrotli == "1" ];then
+	echo "  Modify configure"
+	sed -i '' 's/-lbrotlidec/-lbrotli/' ${CURL_VERSION}/configure
+fi
 
 echo -e "${bold}Building Mac libraries${dim}"
 buildMac "x86_64"
