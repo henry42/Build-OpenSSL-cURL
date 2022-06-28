@@ -565,7 +565,7 @@ buildTVOSsim()
 }
 
 echo -e "${bold}Cleaning up${dim}"
-rm -rf "${LIB_BUILD}"
+# rm -rf "${LIB_BUILD}"
 
 mkdir -p "${LIB_BUILD}/lib"
 mkdir -p "${LIB_BUILD}/Mac"
@@ -575,6 +575,8 @@ mkdir -p "${LIB_BUILD}/Catalyst"
 
 rm -rf "/tmp/${LIBRARY_NAME}-*"
 rm -rf "/tmp/${LIBRARY_NAME}-*.log"
+
+LIBRARY_NAME_2=ngtcp2_crypto_openssl
 
 
 echo -e "${bold}Building Mac libraries${dim}"
@@ -586,6 +588,11 @@ lipo \
 		"${LIB_BUILD}/Mac/arm64/lib/lib${LIBRARY_NAME}.a" \
         -create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME}_Mac.a"
 
+lipo \
+        "${LIB_BUILD}/Mac/x86_64/lib/lib${LIBRARY_NAME_2}.a" \
+		"${LIB_BUILD}/Mac/arm64/lib/lib${LIBRARY_NAME_2}.a" \
+        -create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME_2}_Mac.a"
+
 if [ $catalyst == "1" ]; then
     echo -e "${bold}Building Catalyst libraries${dim}"
     buildCatalyst "x86_64"
@@ -595,6 +602,11 @@ if [ $catalyst == "1" ]; then
             "${LIB_BUILD}/Catalyst/x86_64/lib/lib${LIBRARY_NAME}.a" \
             "${LIB_BUILD}/Catalyst/arm64/lib/lib${LIBRARY_NAME}.a" \
             -create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME}_Catalyst.a"
+
+	lipo \
+            "${LIB_BUILD}/Catalyst/x86_64/lib/lib${LIBRARY_NAME_2}.a" \
+            "${LIB_BUILD}/Catalyst/arm64/lib/lib${LIBRARY_NAME_2}.a" \
+            -create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME_2}_Catalyst.a"
 fi
 
 echo -e "${bold}Building iOS libraries (bitcode)${dim}"
@@ -629,12 +641,40 @@ lipo \
 	"${LIB_BUILD}/iOS-simulator/arm64/lib/lib${LIBRARY_NAME}.a" \
 	-create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME}_iOS-simulator.a"
 
+
+
+lipo \
+	"${LIB_BUILD}/iOS/armv7/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS/armv7s/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS-simulator/i386/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS/arm64/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS/arm64e/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS-simulator/x86_64/lib/lib${LIBRARY_NAME_2}.a" \
+	-create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME_2}_iOS-fat.a"
+
+lipo \
+	"${LIB_BUILD}/iOS/armv7/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS/armv7s/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS/arm64/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS/arm64e/lib/lib${LIBRARY_NAME_2}.a" \
+	-create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME_2}_iOS.a"
+
+lipo \
+	"${LIB_BUILD}/iOS-simulator/i386/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS-simulator/x86_64/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/iOS-simulator/arm64/lib/lib${LIBRARY_NAME_2}.a" \
+	-create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME_2}_iOS-simulator.a"
+
 echo -e "${bold}Building tvOS libraries${dim}"
 buildTVOS "arm64"
 
 lipo \
         "${LIB_BUILD}/tvOS/arm64/lib/lib${LIBRARY_NAME}.a" \
         -create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME}_tvOS.a"
+
+lipo \
+        "${LIB_BUILD}/tvOS/arm64/lib/lib${LIBRARY_NAME_2}.a" \
+        -create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME_2}_tvOS.a"
 
 buildTVOSsim "x86_64"
 buildTVOSsim "arm64"
@@ -648,6 +688,16 @@ lipo \
 	"${LIB_BUILD}/tvOS-simulator/x86_64/lib/lib${LIBRARY_NAME}.a" \
 	"${LIB_BUILD}/tvOS-simulator/arm64/lib/lib${LIBRARY_NAME}.a" \
 	-create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME}_tvOS-simulator.a"
+
+lipo \
+        "${LIB_BUILD}/tvOS/arm64/lib/lib${LIBRARY_NAME_2}.a" \
+        "${LIB_BUILD}/tvOS-simulator/x86_64/lib/lib${LIBRARY_NAME_2}.a" \
+        -create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME_2}_tvOS-fat.a"
+
+lipo \
+	"${LIB_BUILD}/tvOS-simulator/x86_64/lib/lib${LIBRARY_NAME_2}.a" \
+	"${LIB_BUILD}/tvOS-simulator/arm64/lib/lib${LIBRARY_NAME_2}.a" \
+	-create -output "${LIB_BUILD}/lib/lib${LIBRARY_NAME_2}_tvOS-simulator.a"
 
 echo -e "${bold}Cleaning up${dim}"
 rm -rf /tmp/${LIB_BUILD_VERSION}-*
@@ -674,36 +724,27 @@ build_xc()
 		cp ${libname}/lib/lib${libname}_Catalyst.a $LIB_BUILD/lib/Catalyst/lib${libname}.a
 		xcodebuild -create-xcframework \
 			-library $LIB_BUILD/lib/iOS/lib${libname}.a \
-            -headers $LIB_BUILD/iOS/arm64/include \
 			-library $LIB_BUILD/lib/iOS-simulator/lib${libname}.a \
-            -headers $LIB_BUILD/iOS-simulator/arm64/include \
 			-library $LIB_BUILD/lib/tvOS/lib${libname}.a \
-            -headers $LIB_BUILD/tvOS/arm64/include \
 			-library $LIB_BUILD/lib/tvOS-simulator/lib${libname}.a \
-            -headers $LIB_BUILD/tvOS-simulator/arm64/include \
 			-library $LIB_BUILD/lib/Catalyst/lib${libname}.a \
-            -headers $LIB_BUILD/Catalyst/arm64/include \
             -library $LIB_BUILD/lib/Mac/lib${libname}.a \
-            -headers $LIB_BUILD/Mac/arm64/include \
 			-output $LIB_BUILD/xcframework/lib${libname}.xcframework
 	else
 		xcodebuild -create-xcframework \
 			-library $LIB_BUILD/lib/iOS/lib${libname}.a \
-            -headers $LIB_BUILD/iOS/arm64/include \
 			-library $LIB_BUILD/lib/iOS-simulator/lib${libname}.a \
-            -headers $LIB_BUILD/iOS-simulator/arm64/include \
 			-library $LIB_BUILD/lib/tvOS/lib${libname}.a \
-            -headers $LIB_BUILD/tvOS/arm64/include \
 			-library $LIB_BUILD/lib/tvOS-simulator/lib${libname}.a \
-            -headers $LIB_BUILD/tvOS-simulator/arm64/include \
             -library $LIB_BUILD/lib/Mac/lib${libname}.a \
-            -headers $LIB_BUILD/Mac/arm64/include \
 			-output $LIB_BUILD/xcframework/lib${libname}.xcframework
 	fi
 
 }
 
 build_xc ${LIBRARY_NAME}
+
+build_xc ${LIBRARY_NAME_2}
 
 #reset trap
 trap - INT TERM EXIT

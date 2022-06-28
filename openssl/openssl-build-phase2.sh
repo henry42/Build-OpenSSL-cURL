@@ -38,7 +38,7 @@ IOS_SDK_VERSION=""
 TVOS_MIN_SDK_VERSION="9.0"
 TVOS_SDK_VERSION=""
 catalyst="0"
-VERSION="1.1.1i"				# OpenSSL version default
+VERSION="1.1.1p"				# OpenSSL version default
 
 CORES=$(sysctl -n hw.ncpu)
 OPENSSL_VERSION="openssl-${VERSION}"

@@ -10,11 +10,11 @@
 # EDIT this section to Select Default Versions #
 ################################################
 
-OPENSSL="1.1.1o"	# https://www.openssl.org/source/
-LIBCURL="7.83.1"	# https://curl.haxx.se/download.html
-NGHTTP2="1.47.0"	# https://nghttp2.org/
-BROTLI="1.0.9"
-ZSTD="1.5.2"
+OPENSSL="1.1.1p"	# https://www.openssl.org/source/
+LIBCURL="7.84.0"	# https://curl.haxx.se/download.html
+NGHTTP2="1.48.0"	# https://nghttp2.org/
+BROTLI="1.0.9"		# https://github.com/google/brotli
+ZSTD="1.5.2"		# https://github.com/facebook/zstd
 
 ################################################
 
@@ -452,5 +452,3 @@ END=$(date +%s)
 secs=$(echo "$END - $START" | bc)
 printf '  Duration %02dh:%02dm:%02ds\n' $(($secs/3600)) $(($secs%3600/60)) $(($secs%60))
 echo -e "${normal}"
-
-rm -f $NOHTTP2

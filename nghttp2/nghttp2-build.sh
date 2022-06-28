@@ -34,10 +34,9 @@ alertdim="\033[0m${red}\033[2m"
 trap 'echo -e "${alert}** ERROR with Build - Check /tmp/nghttp2*.log${alertdim}"; tail -5 /tmp/nghttp2*.log' INT TERM EXIT
 
 # --- Edit this to update default version ---
-NGHTTP2_VERNUM="1.41.0"
+NGHTTP2_VERNUM="1.48.0"
 
 # Set defaults
-VERSION="1.1.1i"				# OpenSSL version default
 catalyst="0"
 
 # Set minimum OS versions for target

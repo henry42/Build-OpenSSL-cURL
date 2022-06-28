@@ -1,6 +1,6 @@
 # Manual
 -----
-
+0. Install tools && cloc `brew install autoconf automake libtool`
 1. Download Openssl with quic https://github.com/quictls/openssl
 2. Unzip it and change directory name to openssl-1.1.1? and put it in openssl after taring it
 3. Now there should be a file named openssl-1.1.1?.tar.gz in openssl directory
